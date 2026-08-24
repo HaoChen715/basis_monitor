@@ -1,0 +1,22 @@
+[project]
+name = "basis-monitor"
+version = "1.0.0"
+description = "基差 / 跨期价差监控系统 (tinysoft 数据源 + 企业微信告警)"
+authors = [{ name = "basis-monitor" }]
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.0",
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+]
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[tool.pdm]
+distribution = false
+
+[tool.pdm.scripts]
+dev = "python app.py"
+

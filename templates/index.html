@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>基差 / 跨期价差监控系统</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #334155;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --primary: #3b82f6;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+  }
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .badges { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .badge {
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    background: var(--panel-2);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .badge.ok { background: rgba(34,197,94,.15); color: var(--success); }
+  .badge.bad { background: rgba(239,68,68,.15); color: var(--danger); }
+  .badge.warn { background: rgba(245,158,11,.15); color: var(--warning); }
+
+  nav {
+    display: flex;
+    gap: 4px;
+    padding: 10px 24px 0;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  nav button {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 10px 18px;
+    font-size: 14px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  nav button.active { color: var(--text); border-bottom-color: var(--primary); }
+  nav button:hover { color: var(--text); }
+
+  main { padding: 20px 24px; max-width: 1200px; margin: 0 auto; }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .toolbar .spacer { flex: 1; }
+
+  .btn {
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: opacity .15s;
+  }
+  .btn:hover { opacity: .85; }
+  .btn.secondary { background: var(--panel-2); }
+  .btn.danger { background: var(--danger); }
+  .btn.small { padding: 4px 10px; font-size: 12px; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .card h2 { font-size: 15px; margin-bottom: 12px; color: var(--text); }
+  .card .hint { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+  tr:hover td { background: rgba(51,65,85,.4); }
+  .mono { font-family: "SF Mono", Consolas, monospace; }
+
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; }
+  .tag.ok { background: rgba(34,197,94,.15); color: var(--success); }
+  .tag.bad { background: rgba(239,68,68,.15); color: var(--danger); }
+  .tag.warn { background: rgba(245,158,11,.15); color: var(--warning); }
+  .tag.gray { background: rgba(148,163,184,.15); color: var(--muted); }
+  .tag.blue { background: rgba(59,130,246,.15); color: var(--primary); }
+
+  /* modal */
+  .modal-mask {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.55);
+    z-index: 100;
+    align-items: flex-start;
+    justify-content: center;
+    overflow-y: auto;
+    padding: 40px 16px;
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 640px;
+    padding: 22px;
+  }
+  .modal h3 { margin-bottom: 16px; font-size: 16px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  .field label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+  .field input, .field select {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    outline: none;
+  }
+  .field input:focus, .field select:focus { border-color: var(--primary); }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+  .checkbox { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; }
+  .checkbox input { width: auto; }
+
+  /* login */
+  #loginView {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg);
+    z-index: 50;
+  }
+  #loginView.hidden { display: none; }
+  .login-box {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 34px 32px;
+    width: 340px;
+  }
+  .login-box h2 { font-size: 18px; margin-bottom: 6px; }
+  .login-box .desc { color: var(--muted); font-size: 12px; margin-bottom: 20px; }
+  .login-box .field { margin-bottom: 14px; }
+  .login-box .btn { width: 100%; padding: 10px; }
+  .login-err { color: var(--danger); font-size: 12px; margin-top: 10px; min-height: 16px; }
+
+  /* market data table */
+  .scroll-x { overflow-x: auto; }
+  #marketTable td, #marketTable th { min-width: 90px; }
+
+  /* alerts */
+  .alert-item { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+  .alert-item .t { color: var(--muted); font-size: 12px; }
+  .alert-item.bad { border-color: rgba(239,68,68,.4); }
+  .alert-item.warn { border-color: rgba(245,158,11,.4); }
+  .alert-item.ok { border-color: rgba(34,197,94,.4); }
+
+  .empty { color: var(--muted); text-align: center; padding: 30px 0; }
+  .toast {
+    position: fixed; top: 16px; right: 16px;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 10px 16px;
+    border-radius: 8px;
+    z-index: 200;
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: all .2s;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.ok { border-color: var(--success); }
+  .toast.bad { border-color: var(--danger); }
+
+  .inline-form { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) { .form-grid, .inline-form { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<!-- ======================= 登录 ======================= -->
+<div id="loginView">
+  <form class="login-box" onsubmit="login(event)">
+    <h2>基差 / 跨期价差监控</h2>
+    <div class="desc">请输入用户名和密码登录</div>
+    <div class="field">
+      <label>用户名</label>
+      <input type="text" id="loginUser" autocomplete="username" autofocus>
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input type="password" id="loginPass" autocomplete="current-password">
+    </div>
+    <button class="btn" type="submit">登 录</button>
+    <div class="login-err" id="loginErr"></div>
+  </form>
+</div>
+
+<!-- ======================= 主界面 ======================= -->
+<div id="appView" style="display:none;">
+<header>
+  <div>
+    <h1>基差 / 跨期价差监控系统</h1>
+    <div class="sub">数据源: 新浪实时 + tinysoft 衍生指标 · 企业微信告警</div>
+  </div>
+  <div class="badges">
+    <span class="badge" id="userBadge">--</span>
+    <span class="badge" id="engineBadge">引擎 --</span>
+    <span class="badge" id="marketBadge">盘面 --</span>
+    <span class="badge" id="fetchBadge">最近抓取 --</span>
+    <button class="btn secondary small" onclick="logout()">退出</button>
+  </div>
+</header>
+
+<nav id="nav">
+  <button class="active" data-tab="rules">规则管理</button>
+  <button data-tab="market">实时行情</button>
+  <button data-tab="alerts">告警日志</button>
+  <button data-tab="users" class="admin-only" style="display:none">用户管理</button>
+  <button data-tab="settings" class="admin-only" style="display:none">系统设置</button>
+</nav>
+
+<main>
+  <!-- ======================= 规则管理 ======================= -->
+  <section id="tab-rules">
+    <div class="toolbar">
+      <h2>监控规则</h2>
+      <div class="spacer"></div>
+      <button class="btn" onclick="openRuleModal()">+ 新增规则</button>
+    </div>
+    <div class="card" style="padding:8px 18px;">
+      <div class="hint" style="margin:8px 0;">
+        监控值 = 合约A的指标值 − 合约B的指标值（合约B留空则为合约A的指标值）。
+        当监控值 <span class="tag warn">大于 MAX</span> 或 <span class="tag warn">小于 MIN</span> 时触发企业微信告警。
+        示例：监控 IM2612−IM2609 的期货价格价差。<span class="admin-only" style="display:none">管理员可设置规则归属（某用户或共享）。</span>
+      </div>
+      <div class="scroll-x">
+        <table id="rulesTable">
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th>指标</th>
+              <th>合约A</th>
+              <th>合约B</th>
+              <th>MIN</th>
+              <th>MAX</th>
+              <th>当前值</th>
+              <th>状态</th>
+              <th class="admin-only" style="display:none">归属</th>
+              <th>冷却(秒)</th>
+              <th style="min-width:130px">操作</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= 实时行情 ======================= -->
+  <section id="tab-market" style="display:none;">
+    <div class="toolbar">
+      <h2>实时行情</h2>
+      <div class="spacer"></div>
+      <button class="btn secondary" onclick="loadMarket()">刷新</button>
+    </div>
+    <div class="card">
+      <div class="hint" id="marketHint"></div>
+      <div class="hint" id="marketStale" style="display:none; color:var(--warning);"></div>
+      <div class="scroll-x">
+        <table id="marketTable">
+          <thead><tr></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= 告警日志 ======================= -->
+  <section id="tab-alerts" style="display:none;">
+    <div class="toolbar">
+      <h2>告警日志</h2>
+      <div class="spacer"></div>
+      <button class="btn secondary" onclick="loadAlerts()">刷新</button>
+    </div>
+    <div class="card" id="alertsBox"></div>
+  </section>
+
+  <!-- ======================= 用户管理（管理员） ======================= -->
+  <section id="tab-users" style="display:none;">
+    <div class="toolbar">
+      <h2>用户管理</h2>
+      <div class="spacer"></div>
+      <button class="btn" onclick="openUserModal()">+ 新增用户</button>
+    </div>
+    <div class="card">
+      <div class="hint">管理员可在此创建用户、重置密码、删除用户。普通用户只能看到归属自己的规则与相关行情，用户间互相隔离。
+        也可直接在 <span class="mono">config/users.json</span> 中添加：<span class="mono">{"username":"张三","password":"明文","role":"user"}</span>，首次加载自动转为哈希。</div>
+      <div class="scroll-x">
+        <table id="usersTable">
+          <thead><tr><th>用户名</th><th>角色</th><th>创建时间</th><th style="min-width:150px">操作</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= 系统设置（管理员） ======================= -->
+  <section id="tab-settings" style="display:none;">
+    <div class="card">
+      <h2>全局设置</h2>
+      <div class="hint">修改后点击保存，立即生效。webhook key 显示为脱敏值，如需更换请粘贴新 key。</div>
+      <form class="inline-form" id="settingsForm" onsubmit="saveSettings(event)">
+        <div class="field full">
+          <label>企业微信接口地址（内网部署填写内网网关/代理地址，留空用官方地址）</label>
+          <input type="text" name="wechatapibase" autocomplete="off">
+        </div>
+        <div class="field">
+          <label>企业微信 Webhook Key</label>
+          <input type="text" name="wechathookkey" placeholder="留空表示不修改" autocomplete="off">
+        </div>
+        <div class="field">
+          <label>轮询间隔（秒）</label>
+          <input type="number" name="pollinterval" min="1">
+        </div>
+        <div class="field">
+          <label>新浪刷新间隔（秒）</label>
+          <input type="number" name="sinarefreshinterval" min="1">
+        </div>
+        <div class="field">
+          <label>数据源</label>
+          <select name="datasource">
+            <option value="hybrid">hybrid（新浪实时 + 后台合并 tinysoft 衍生指标）</option>
+            <option value="sina">sina（新浪实时，快，仅期货/现货/基差）</option>
+            <option value="tinysoft">tinysoft（慢，含矫正基差/隐含利率等全指标）</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>衍生指标刷新间隔（秒，hybrid 用）</label>
+          <input type="number" name="derivedinterval" min="60">
+        </div>
+        <div class="field">
+          <label>令牌刷新间隔（秒）</label>
+          <input type="number" name="tokenrefreshinterval" min="30">
+        </div>
+        <div class="field">
+          <label>默认告警冷却（秒）</label>
+          <input type="number" name="alertcooldown" min="0">
+        </div>
+        <div class="field">
+          <label>开盘时间（HHMMSS）</label>
+          <input type="text" name="marketopen">
+        </div>
+        <div class="field">
+          <label>收盘时间（HHMMSS）</label>
+          <input type="text" name="marketclose">
+        </div>
+        <div class="field">
+          <label>午间休盘开始（HHMMSS）</label>
+          <input type="text" name="lunchstart">
+        </div>
+        <div class="field">
+          <label>午间休盘结束（HHMMSS）</label>
+          <input type="text" name="lunchend">
+        </div>
+        <div class="field">
+          <label>心跳间隔（秒）</label>
+          <input type="number" name="heartbeatinterval" min="0">
+        </div>
+        <div class="field checkbox">
+          <label style="color:var(--muted)">恢复通知</label>
+          <div><input type="checkbox" name="notifyrecovery"> 数值恢复时发送通知</div>
+        </div>
+        <div class="field checkbox full">
+          <div><input type="checkbox" name="enableheartbeat"> 开启心跳看门狗（定期发送"程序正常"告警）</div>
+        </div>
+        <div class="full modal-actions">
+          <button type="button" class="btn secondary" onclick="testAlert()">发送测试告警</button>
+          <button type="submit" class="btn">保存设置</button>
+        </div>
+      </form>
+    </div>
+  </section>
+</main>
+</div>
+
+<!-- ======================= 规则编辑弹窗 ======================= -->
+<div class="modal-mask" id="ruleModal">
+  <div class="modal">
+    <h3 id="ruleModalTitle">新增规则</h3>
+    <input type="hidden" id="f_id">
+    <div class="form-grid">
+      <div class="field full">
+        <label>规则名称</label>
+        <input type="text" id="f_name" placeholder="如：IM2612-IM2609 跨期价差">
+      </div>
+      <div class="field">
+        <label>指标</label>
+        <select id="f_metric"></select>
+      </div>
+      <div class="field">
+        <label>品种</label>
+        <select id="f_variety"><option value="IM">IM</option><option value="IF">IF</option><option value="IC">IC</option><option value="IH">IH</option></select>
+      </div>
+      <div class="field">
+        <label>合约A</label>
+        <input type="text" id="f_contract_a" placeholder="如：IM2612">
+      </div>
+      <div class="field">
+        <label>合约B（留空=单合约监控）</label>
+        <input type="text" id="f_contract_b" placeholder="如：IM2609">
+      </div>
+      <div class="field admin-only" id="f_owner_field" style="display:none">
+        <label>规则归属</label>
+        <select id="f_owner"></select>
+      </div>
+      <div class="field">
+        <label>告警下限 MIN（留空=不启用）</label>
+        <input type="number" id="f_min" step="any" placeholder="如：-250">
+      </div>
+      <div class="field">
+        <label>告警上限 MAX（留空=不启用）</label>
+        <input type="number" id="f_max" step="any" placeholder="如：-100">
+      </div>
+      <div class="field">
+        <label>告警冷却（秒，0=使用全局默认）</label>
+        <input type="number" id="f_alert_cooldown" min="0" value="0">
+      </div>
+      <div class="field">
+        <label>企业微信 Key（留空=使用全局）</label>
+        <input type="text" id="f_webhook_key" autocomplete="off">
+      </div>
+      <div class="field full">
+        <label>提及（逗号分隔，@all 或手机号）</label>
+        <input type="text" id="f_mentioned_list" value="@all">
+      </div>
+      <div class="field full checkbox">
+        <div><input type="checkbox" id="f_notify_recovery" checked> 数值恢复时发送通知</div>
+        <div><input type="checkbox" id="f_enabled" checked> 启用该规则</div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="closeRuleModal()">取消</button>
+      <button class="btn" onclick="saveRule()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 用户编辑弹窗 ======================= -->
+<div class="modal-mask" id="userModal">
+  <div class="modal" style="max-width:420px;">
+    <h3 id="userModalTitle">新增用户</h3>
+    <div class="form-grid" style="grid-template-columns:1fr;">
+      <div class="field">
+        <label>用户名</label>
+        <input type="text" id="u_username" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>密码</label>
+        <input type="text" id="u_password" autocomplete="off" placeholder="设置初始密码">
+      </div>
+      <div class="field">
+        <label>角色</label>
+        <select id="u_role">
+          <option value="user">普通用户（仅自己的规则）</option>
+          <option value="admin">管理员（全部权限）</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="closeUserModal()">取消</button>
+      <button class="btn" onclick="saveUser()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let _me = null;
+let _role = "user";
+let _users = [];
+
+// ------------------------------------------------------- toast
+let toastTimer = null;
+function toast(msg, type = "ok") {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "toast show " + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = "toast"; }, 3000);
+}
+
+async function api(url, opts = {}) {
+  const res = await fetch(url, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+  if (res.status === 401) { showLogin(); throw new Error("未登录或会话过期"); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+  return data;
+}
+
+// ------------------------------------------------------- 登录 / 退出
+let _statusTimer = null;
+function showLogin() {
+  // 停止所有轮询，避免未登录时反复请求产生 401 刷屏
+  if (_statusTimer) { clearInterval(_statusTimer); _statusTimer = null; }
+  if (_marketTimer) { clearTimeout(_marketTimer); _marketTimer = null; }
+  $("appView").style.display = "none";
+  $("loginView").classList.remove("hidden");
+}
+function showApp() {
+  $("loginView").classList.add("hidden");
+  $("appView").style.display = "";
+}
+async function login(e) {
+  e.preventDefault();
+  $("loginErr").textContent = "";
+  try {
+    const r = await api("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: $("loginUser").value.trim(), password: $("loginPass").value }),
+    });
+    _me = r.user;
+    _role = r.user.role;
+    await bootApp();
+  } catch (err) {
+    $("loginErr").textContent = err.message;
+  }
+}
+async function logout() {
+  try { await api("/api/logout", { method: "POST" }); } catch (e) {}
+  _me = null;
+  showLogin();
+}
+
+// ------------------------------------------------------- 角色渲染
+function applyRole() {
+  const isAdmin = _role === "admin";
+  document.querySelectorAll(".admin-only").forEach((el) => {
+    el.style.display = isAdmin ? "" : "none";
+  });
+  document.querySelectorAll("nav .admin-only").forEach((el) => {
+    el.style.display = isAdmin ? "" : "none";
+  });
+  if (_me) $("userBadge").textContent = _me.username + "（" + (isAdmin ? "管理员" : "普通用户") + "）";
+}
+
+// ------------------------------------------------------- 初始化
+async function bootApp() {
+  applyRole();
+  showApp();
+  await loadRules();
+  await loadConfigMeta();
+  if (_role === "admin") loadUsers();
+  loadStatus();
+  if (!_statusTimer) _statusTimer = setInterval(loadStatus, 3000);
+  scheduleMarketRefresh();
+}
+
+(async function init() {
+  try {
+    const r = await api("/api/me");
+    _me = r.user;
+    _role = r.user.role;
+    await bootApp();
+  } catch (e) {
+    showLogin();
+  }
+})();
+
+// ------------------------------------------------------- tabs
+document.querySelectorAll("nav button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("nav button").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.querySelectorAll("main > section").forEach((s) => (s.style.display = "none"));
+    $("tab-" + btn.dataset.tab).style.display = "";
+    if (btn.dataset.tab === "market") { loadMarket(); updateMarketHint(); }
+    if (btn.dataset.tab === "alerts") loadAlerts();
+    if (btn.dataset.tab === "users") loadUsers();
+    if (btn.dataset.tab === "settings") loadSettings();
+  });
+});
+
+// ------------------------------------------------------- 状态轮询
+let _marketRefreshMs = 3000;
+let _datasource = "hybrid";
+let _derivedInterval = 300;
+let _marketTimer = null;
+
+function updateMarketHint() {
+  const el = $("marketHint");
+  if (!el) return;
+  const refresh = _marketRefreshMs >= 1000 ? Math.round(_marketRefreshMs / 1000) + " 秒" : (_marketRefreshMs / 1000) + " 秒";
+  if (_datasource === "tinysoft") {
+    el.textContent = "当前数据源：tinysoft（现货价格 / 期货价格 / 当前基差 / 矫正基差 / 隐含利率 / 理论基差等全部指标），行情按轮询间隔自动刷新（约 " + refresh + "）。";
+  } else if (_datasource === "sina") {
+    el.textContent = "当前数据源：新浪财经免费实时行情（现货价格 / 期货价格 / 当前基差），每 " + refresh + " 自动刷新。";
+  } else {
+    el.textContent = "当前数据源：hybrid —— 新浪实时行情为主（现货价格 / 期货价格 / 当前基差，每 " + refresh + " 自动刷新），后台每 " + _derivedInterval + " 秒合并 tinysoft 衍生指标（矫正基差 / 隐含利率 / 理论基差等）。";
+  }
+  if (_role !== "admin") {
+    el.textContent += " 当前仅展示与你规则相关合约的行情。";
+  }
+}
+
+async function loadConfigMeta() {
+  try {
+    const c = await api("/api/meta");
+    _datasource = c.datasource || "hybrid";
+    _derivedInterval = c.derivedinterval || 300;
+    _marketRefreshMs = (_datasource === "tinysoft"
+      ? Math.max(Number(c.pollinterval) || 3, 3)
+      : Math.max(Number(c.sinarefreshinterval) || 1, 1)) * 1000;
+    updateMarketHint();
+  } catch (e) {}
+}
+
+function scheduleMarketRefresh() {
+  if (_marketTimer) clearTimeout(_marketTimer);
+  _marketTimer = setTimeout(async () => {
+    if ($("tab-market").style.display !== "none") loadMarket();
+    scheduleMarketRefresh();
+  }, _marketRefreshMs);
+}
+
+function triggerTag(trigger) {
+  if (trigger === "above") return '<span class="tag bad">高于MAX</span>';
+  if (trigger === "below") return '<span class="tag bad">低于MIN</span>';
+  if (trigger === "ok") return '<span class="tag ok">正常</span>';
+  if (trigger === "missing") return '<span class="tag warn">数据缺失</span>';
+  if (trigger === "error") return '<span class="tag bad">异常</span>';
+  return '<span class="tag gray">未启用</span>';
+}
+
+async function loadStatus() {
+  try {
+    const s = await api("/api/status");
+    const eb = $("engineBadge");
+    if (s.engine_running) { eb.className = "badge ok"; eb.textContent = "引擎运行中"; }
+    else { eb.className = "badge bad"; eb.textContent = "引擎未启动"; }
+    const mb = $("marketBadge");
+    if (s.market_open) { mb.className = "badge ok"; mb.textContent = "盘中"; }
+    else { mb.className = "badge warn"; mb.textContent = "非交易时段"; }
+    $("fetchBadge").textContent = "最近抓取 " + (s.last_fetch_time || "--");
+    // 非交易时段：展示最近一次行情缓存
+    const stale = $("marketStale");
+    if (stale) {
+      if (!s.market_open && s.last_fetch_time) {
+        stale.style.display = "";
+        stale.textContent = "非交易时段，以下为最近一次行情数据（抓取时间：" + s.last_fetch_time + (s.market_cached ? "，缓存加载" : "") + "）。";
+      } else {
+        stale.style.display = "none";
+      }
+    }
+    renderRuleValues(s.rule_values || {});
+  } catch (e) {}
+}
+
+// ------------------------------------------------------- 规则列表
+async function loadRules() {
+  try {
+    const data = await api("/api/rules");
+    window._metrics = data.metrics || [];
+    $("f_metric").innerHTML = window._metrics.map((m) => "<option>" + m + "</option>").join("");
+    window._rules = data.rules || [];
+    renderRules(window._rules);
+  } catch (e) { toast("加载规则失败: " + e.message, "bad"); }
+}
+
+function renderRules(rules) {
+  const isAdmin = _role === "admin";
+  const tbody = document.querySelector("#rulesTable tbody");
+  if (!rules.length) {
+    tbody.innerHTML = '<tr><td colspan="12" class="empty">暂无规则，点击右上角「新增规则」添加</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rules.map((r) => {
+    const val = window._ruleValues && window._ruleValues[r.id];
+    const v = val && val.value != null ? Number(val.value).toFixed(2) : "--";
+    const tag = val ? triggerTag(val.trigger) : '<span class="tag gray">未计算</span>';
+    const enabled = r.enabled ? '<span class="tag ok">启用</span>' : '<span class="tag gray">禁用</span>';
+    const owner = r.owner === "*" ? '<span class="tag blue">共享</span>' : '<span class="tag">' + esc(r.owner || "-") + '</span>';
+    return "<tr>" +
+      "<td>" + esc(r.name) + "</td>" +
+      "<td>" + esc(r.metric) + "</td>" +
+      '<td class="mono">' + esc(r.contract_a) + "</td>" +
+      '<td class="mono">' + (r.contract_b ? esc(r.contract_b) : "—") + "</td>" +
+      '<td class="mono">' + (r.min != null ? r.min : "—") + "</td>" +
+      '<td class="mono">' + (r.max != null ? r.max : "—") + "</td>" +
+      '<td class="mono">' + v + "</td>" +
+      "<td>" + enabled + " " + tag + "</td>" +
+      (isAdmin ? "<td>" + owner + "</td>" : "") +
+      '<td class="mono">' + (r.alert_cooldown || "全局") + "</td>" +
+      '<td>' +
+        '<button class="btn small secondary" onclick="checkNow(\'' + r.id + '\')">检测</button> ' +
+        '<button class="btn small secondary" onclick="openRuleModal(\'' + r.id + '\')">编辑</button> ' +
+        '<button class="btn small danger" onclick="deleteRule(\'' + r.id + '\')">删除</button>' +
+      "</td></tr>";
+  }).join("");
+}
+
+function renderRuleValues(values) {
+  window._ruleValues = values;
+  if (window._rules) renderRules(window._rules);
+}
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+// ------------------------------------------------------- 规则弹窗
+function openRuleModal(id) {
+  $("ruleModalTitle").textContent = id ? "编辑规则" : "新增规则";
+  $("f_id").value = id || "";
+  const r = id ? window._rules.find((x) => x.id === id) : {};
+  $("f_name").value = r.name || "";
+  $("f_metric").value = r.metric || "当前基差";
+  const a = r.contract_a || "";
+  $("f_variety").value = a.slice(0, 2) || "IM";
+  $("f_contract_a").value = a;
+  $("f_contract_b").value = r.contract_b || "";
+  $("f_min").value = r.min != null ? r.min : "";
+  $("f_max").value = r.max != null ? r.max : "";
+  $("f_alert_cooldown").value = r.alert_cooldown || 0;
+  $("f_webhook_key").value = r.webhook_key || "";
+  $("f_mentioned_list").value = (r.mentioned_list || ["@all"]).join(",");
+  $("f_notify_recovery").checked = r.notify_recovery !== false;
+  $("f_enabled").checked = r.enabled !== false;
+  if (_role === "admin") {
+    const opts = ['<option value="*">*（共享，所有用户可见）</option>']
+      .concat(_users.map((u) => '<option value="' + esc(u.username) + '">' + esc(u.username) + '</option>'));
+    $("f_owner").innerHTML = opts.join("");
+    $("f_owner").value = r.owner || "*";
+  }
+  $("ruleModal").classList.add("show");
+}
+
+function closeRuleModal() {
+  $("ruleModal").classList.remove("show");
+}
+
+$("ruleModal").addEventListener("click", (e) => {
+  if (e.target === $("ruleModal")) closeRuleModal();
+});
+
+function collectRule() {
+  const variety = $("f_variety").value;
+  const a = ($("f_contract_a").value || "").trim().toUpperCase();
+  const b = ($("f_contract_b").value || "").trim().toUpperCase();
+  const norm = (c) => (c && !c.startsWith(variety) ? variety + c : c);
+  const contract_a = norm(a);
+  const contract_b = b ? norm(b) : "";
+  const data = {
+    name: $("f_name").value.trim(),
+    metric: $("f_metric").value,
+    contract_a: contract_a,
+    contract_b: contract_b,
+    min: $("f_min").value === "" ? null : Number($("f_min").value),
+    max: $("f_max").value === "" ? null : Number($("f_max").value),
+    alert_cooldown: Number($("f_alert_cooldown").value) || 0,
+    webhook_key: $("f_webhook_key").value.trim(),
+    mentioned_list: $("f_mentioned_list").value.split(",").map((s) => s.trim()).filter(Boolean),
+    notify_recovery: $("f_notify_recovery").checked,
+    enabled: $("f_enabled").checked,
+  };
+  if (_role === "admin") data.owner = $("f_owner").value || "*";
+  return data;
+}
+
+async function saveRule() {
+  const data = collectRule();
+  if (!data.contract_a) return toast("请填写合约A", "bad");
+  if (data.min == null && data.max == null) return toast("请至少填写 MIN 或 MAX 之一", "bad");
+  const id = $("f_id").value;
+  try {
+    if (id) {
+      await api("/api/rules/" + id, { method: "PUT", body: JSON.stringify(data) });
+      toast("规则已更新");
+    } else {
+      await api("/api/rules", { method: "POST", body: JSON.stringify(data) });
+      toast("规则已创建");
+    }
+    closeRuleModal();
+    await loadRules();
+  } catch (e) { toast("保存失败: " + e.message, "bad"); }
+}
+
+async function deleteRule(id) {
+  if (!confirm("确定删除该规则？")) return;
+  try {
+    await api("/api/rules/" + id, { method: "DELETE" });
+    toast("规则已删除");
+    await loadRules();
+  } catch (e) { toast("删除失败: " + e.message, "bad"); }
+}
+
+async function checkNow(id) {
+  try {
+    const r = await api("/api/check/" + id, { method: "POST" });
+    if (r.value == null) {
+      toast((r.name || "规则") + ": " + (r.detail || "数据缺失"), "bad");
+    } else {
+      toast(r.name + " 当前值 = " + r.value + "，触发状态：" + r.trigger + "（" + (r.detail || "正常") + "）");
+    }
+  } catch (e) { toast("检测失败: " + e.message, "bad"); }
+}
+
+// ------------------------------------------------------- 实时行情
+async function loadMarket() {
+  try {
+    const data = await api("/api/market-data");
+    const contracts = Object.keys(data || {}).sort();
+    const thead = document.querySelector("#marketTable thead tr");
+    if (!contracts.length) {
+      thead.innerHTML = "<th>合约</th>";
+      document.querySelector("#marketTable tbody").innerHTML =
+        '<tr><td class="empty">暂无行情数据（等待抓取，或处于非交易时段）</td></tr>';
+      return;
+    }
+    const metrics = ["现货价格", "期货价格", "当前基差", "矫正基差", "理论基差", "基差占比(%)", "隐含利率(%)", "利率(%)", "期内分红", "时间价值"];
+    thead.innerHTML = "<th>指标 / 合约</th>" + contracts.map((c) => "<th>" + esc(c) + "</th>").join("");
+    const tbody = document.querySelector("#marketTable tbody");
+    tbody.innerHTML = metrics.map((m) => {
+      return "<tr><td>" + m + "</td>" + contracts.map((c) => {
+        const v = data[c] && data[c][m];
+        return '<td class="mono">' + (v != null ? Number(v).toFixed(3) : "--") + "</td>";
+      }).join("") + "</tr>";
+    }).join("");
+  } catch (e) { toast("加载行情失败: " + e.message, "bad"); }
+}
+
+// ------------------------------------------------------- 告警日志
+async function loadAlerts() {
+  try {
+    const s = await api("/api/status");
+    const list = s.alert_history || [];
+    const box = $("alertsBox");
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">暂无告警记录</div>';
+      return;
+    }
+    box.innerHTML = list.map((a) => {
+      const cls = a.type === "recovery" ? "ok" : (a.type === "above" || a.type === "below" ? "bad" : "warn");
+      return '<div class="alert-item ' + cls + '">' +
+        "<div><b>" + esc(a.rule_name || a.rule_id) + "</b> " +
+        '<span class="tag ' + (a.type === "recovery" ? "ok" : "bad") + '">' + esc(a.type) + "</span> " +
+        '<span class="mono">' + (a.value != null ? a.value : "") + "</span></div>" +
+        '<div class="t">' + esc(a.detail || "") + " · " + esc(a.time || "") + "</div></div>";
+    }).join("");
+  } catch (e) { toast("加载告警日志失败: " + e.message, "bad"); }
+}
+
+// ------------------------------------------------------- 用户管理（管理员）
+async function loadUsers() {
+  try {
+    const d = await api("/api/users");
+    _users = d.users || [];
+    const tbody = document.querySelector("#usersTable tbody");
+    if (!_users.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty">暂无用户</td></tr>';
+      return;
+    }
+    tbody.innerHTML = _users.map((u) => {
+      const isMe = u.username === d.me;
+      const role = u.role === "admin" ? '<span class="tag bad">管理员</span>' : '<span class="tag ok">普通用户</span>';
+      return "<tr>" +
+        "<td>" + esc(u.username) + (isMe ? ' <span class="tag gray">当前登录</span>' : "") + "</td>" +
+        "<td>" + role + "</td>" +
+        "<td>" + esc(u.created_at || "") + "</td>" +
+        '<td>' +
+          '<button class="btn small secondary" onclick="resetPassword(\'' + esc(u.username) + '\')">重置密码</button> ' +
+          (isMe ? "" : '<button class="btn small danger" onclick="deleteUser(\'' + esc(u.username) + '\')">删除</button>') +
+        "</td></tr>";
+    }).join("");
+  } catch (e) { toast("加载用户失败: " + e.message, "bad"); }
+}
+
+function openUserModal() {
+  $("userModalTitle").textContent = "新增用户";
+  $("u_username").value = "";
+  $("u_password").value = "";
+  $("u_role").value = "user";
+  $("userModal").classList.add("show");
+}
+function closeUserModal() {
+  $("userModal").classList.remove("show");
+}
+$("userModal").addEventListener("click", (e) => {
+  if (e.target === $("userModal")) closeUserModal();
+});
+
+async function saveUser() {
+  const username = $("u_username").value.trim();
+  const password = $("u_password").value;
+  if (!username || !password) return toast("用户名与密码不能为空", "bad");
+  try {
+    await api("/api/users", { method: "POST", body: JSON.stringify({ username: username, password: password, role: $("u_role").value }) });
+    toast("用户已创建");
+    closeUserModal();
+    await loadUsers();
+  } catch (e) { toast("创建失败: " + e.message, "bad"); }
+}
+
+async function resetPassword(username) {
+  const np = prompt("为 " + username + " 设置新密码：");
+  if (!np) return;
+  try {
+    await api("/api/users/" + encodeURIComponent(username) + "/password", { method: "POST", body: JSON.stringify({ password: np }) });
+    toast("密码已重置");
+  } catch (e) { toast("重置失败: " + e.message, "bad"); }
+}
+
+async function deleteUser(username) {
+  if (!confirm("确定删除用户 " + username + "？")) return;
+  try {
+    await api("/api/users/" + encodeURIComponent(username), { method: "DELETE" });
+    toast("用户已删除");
+    await loadUsers();
+  } catch (e) { toast("删除失败: " + e.message, "bad"); }
+}
+
+// ------------------------------------------------------- 设置（管理员）
+async function loadSettings() {
+  try {
+    const c = await api("/api/config");
+    const f = $("settingsForm");
+    f.wechathookkey.value = "";
+    f.wechathookkey.placeholder = c.wechathookkey_set ? "已配置 " + c.wechathookkey : "未配置";
+    f.wechatapibase.value = "";
+    f.wechatapibase.placeholder = c.wechatapibase ? "当前: " + c.wechatapibase : "官方地址";
+    f.pollinterval.value = c.pollinterval;
+    f.sinarefreshinterval.value = c.sinarefreshinterval || "1";
+    f.datasource.value = c.datasource || "hybrid";
+    f.derivedinterval.value = c.derivedinterval;
+    f.tokenrefreshinterval.value = c.tokenrefreshinterval;
+    f.alertcooldown.value = c.alertcooldown;
+    f.marketopen.value = c.marketopen;
+    f.marketclose.value = c.marketclose;
+    f.lunchstart.value = c.lunchstart;
+    f.lunchend.value = c.lunchend;
+    f.heartbeatinterval.value = c.heartbeatinterval;
+    f.notifyrecovery.checked = c.notifyrecovery === "1";
+    f.enableheartbeat.checked = c.enableheartbeat === "1";
+  } catch (e) { toast("加载设置失败: " + e.message, "bad"); }
+}
+
+async function saveSettings(e) {
+  e.preventDefault();
+  const f = $("settingsForm");
+  const data = {
+    pollinterval: f.pollinterval.value,
+    sinarefreshinterval: f.sinarefreshinterval.value,
+    datasource: f.datasource.value,
+    derivedinterval: f.derivedinterval.value,
+    tokenrefreshinterval: f.tokenrefreshinterval.value,
+    alertcooldown: f.alertcooldown.value,
+    marketopen: f.marketopen.value,
+    marketclose: f.marketclose.value,
+    lunchstart: f.lunchstart.value,
+    lunchend: f.lunchend.value,
+    heartbeatinterval: f.heartbeatinterval.value,
+    notifyrecovery: f.notifyrecovery.checked ? "1" : "0",
+    enableheartbeat: f.enableheartbeat.checked ? "1" : "0",
+  };
+  const w = f.wechathookkey.value.trim();
+  if (w) data.wechathookkey = w;
+  const b = f.wechatapibase.value.trim();
+  if (b) data.wechatapibase = b;
+  try {
+    await api("/api/config", { method: "POST", body: JSON.stringify(data) });
+    toast("设置已保存");
+    await loadSettings();
+    await loadConfigMeta();
+  } catch (e) { toast("保存失败: " + e.message, "bad"); }
+}
+
+async function testAlert() {
+  try {
+    const r = await api("/api/test-alert", { method: "POST", body: JSON.stringify({}) });
+    if (r.ok) toast("测试告警已发送，请查看企业微信");
+    else toast("发送失败: " + (r.result && r.result.errmsg), "bad");
+  } catch (e) { toast("发送失败: " + e.message, "bad"); }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+[Global]
+# 企业微信机器人 webhook key（必填，否则无法发送告警；可在前端「系统设置」填写）
+wechathookkey = 
+wechatapibase = https://qyapi.weixin.qq.com/cgi-bin/webhook/send
+pollinterval = 10
+sinarefreshinterval = 1
+tokenrefreshinterval = 600
+alertcooldown = 300
+notifyrecovery = 1
+enableheartbeat = 1
+heartbeatinterval = 3600
+marketopen = 091500
+marketclose = 150000
+lunchstart = 113000
+lunchend = 130000
+datasource = hybrid
+derivedinterval = 300
+serverhost = 0.0.0.0
+serverport = 80
+# 80 等特权端口需 root 权限；非 root 运行（如本地开发）时自动回退到该端口。
+# 注意：请勿使用浏览器拦截的"不安全端口"，否则页面报 ERR_UNSAFE_PORT 打不开。
+# 常见被拦截: 21/22/23/25/110/143/465/587/5060/6000/6665-6669/10080 等。建议用 8080/8090/8000。
+serverportfallback = 8080
+# 会话签名密钥（留空自动生成并写回，无需手工配置）
+secretkey = 
+# 首次运行自动创建的管理员。adminpass 留空则自动生成随机初始密码并打印到启动日志
+adminuser = admin
+adminpass = 
+# 生产部署请务必设置自己的 adminpass 或登录后修改密码
+

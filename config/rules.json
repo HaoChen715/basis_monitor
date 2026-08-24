@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "updated_at": "2026-08-22T16:16:54.634339",
+  "rules": [
+    {
+      "id": "example-im-spread",
+      "name": "IM2612-IM2609 跨期价差",
+      "metric": "当前基差",
+      "contract_a": "IM2612",
+      "contract_b": "IM2609",
+      "min": -260.0,
+      "max": -100.0,
+      "alert_cooldown": 30.0,
+      "notify_recovery": true,
+      "enabled": true,
+      "webhook_key": "",
+      "mentioned_list": [
+        "@all"
+      ],
+      "created_at": "2026-08-21T00:00:00",
+      "updated_at": "2026-08-21T14:43:25.983848",
+      "owner": "*"
+    },
+    {
+      "id": "example-im-basis",
+      "name": "IC2612-IC2609 跨期价差",
+      "metric": "当前基差",
+      "contract_a": "IC2612",
+      "contract_b": "IC2609",
+      "min": -215.0,
+      "max": 0.0,
+      "alert_cooldown": 30.0,
+      "notify_recovery": true,
+      "enabled": true,
+      "webhook_key": "",
+      "mentioned_list": [
+        "@all"
+      ],
+      "created_at": "2026-08-21T00:00:00",
+      "updated_at": "2026-08-21T13:36:04.615478",
+      "owner": "*"
+    }
+  ]
+}

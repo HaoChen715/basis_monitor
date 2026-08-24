@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pdm-python
+
+# 构建产物
+build/
+.spec_cache/
+dist/
+
+# 运行时数据（含敏感信息，不入库）
+logs/
+market_cache.json
+config/config.ini
+config/users.json
+
+# 系统/编辑器
+*.log
+.DS_Store
+.idea/
+.vscode/
