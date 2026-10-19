@@ -200,6 +200,34 @@
 
   .inline-form { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 720px) { .form-grid, .inline-form { grid-template-columns: 1fr; } }
+
+  /* 价格走势 */
+  .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .chart-card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: border-color .15s, transform .1s;
+  }
+  .chart-card:hover { border-color: var(--primary); transform: translateY(-1px); }
+  .chart-card .name { font-size: 14px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  .chart-card .meta { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  .chart-card .vals { display: flex; justify-content: space-between; font-family: "SF Mono", Consolas, monospace; font-size: 12px; }
+  .chart-card .cur { font-size: 16px; font-weight: 600; }
+  .chart-legend { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  .chart-legend .line { display: inline-block; width: 22px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 5px; }
+  .chart-wrap { position: relative; width: 100%; }
+  #chartCanvas { display: block; width: 100%; border-radius: 8px; background: rgba(15,23,42,.5); cursor: crosshair; }
+  .chart-tip {
+    position: absolute; pointer-events: none;
+    background: rgba(15,23,42,.95);
+    border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 9px;
+    font-size: 12px; font-family: "SF Mono", Consolas, monospace;
+    white-space: nowrap; display: none; z-index: 5;
+  }
 </style>
 </head>
 <body>
@@ -241,6 +269,7 @@
 <nav id="nav">
   <button class="active" data-tab="rules">规则管理</button>
   <button data-tab="market">实时行情</button>
+  <button data-tab="charts">价格走势</button>
   <button data-tab="alerts">告警日志</button>
   <button data-tab="users" class="admin-only" style="display:none">用户管理</button>
   <button data-tab="settings" class="admin-only" style="display:none">系统设置</button>
@@ -256,17 +285,19 @@
     </div>
     <div class="card" style="padding:8px 18px;">
       <div class="hint" style="margin:8px 0;">
-        监控值 = 合约A的指标值 − 合约B的指标值（合约B留空则为合约A的指标值）。
+        <b>基差/跨期价差</b>：监控值 = 合约A的指标值 − 合约B的指标值（合约B留空则为合约A的指标值），示例 IM2612−IM2609 跨期价差。<br>
+        <b>行情价格</b>：按证券代码监控股票 / ETF / 可转债的行情指标（如 511380 可转债ETF 的最新价、涨跌幅等）。<br>
         当监控值 <span class="tag warn">大于 MAX</span> 或 <span class="tag warn">小于 MIN</span> 时触发企业微信告警。
-        示例：监控 IM2612−IM2609 的期货价格价差。<span class="admin-only" style="display:none">管理员可设置规则归属（某用户或共享）。</span>
+        <span class="admin-only" style="display:none">管理员可设置规则归属（某用户或共享）。</span>
       </div>
       <div class="scroll-x">
         <table id="rulesTable">
           <thead>
             <tr>
               <th>名称</th>
+              <th>类型</th>
               <th>指标</th>
-              <th>合约A</th>
+              <th>合约A / 代码</th>
               <th>合约B</th>
               <th>MIN</th>
               <th>MAX</th>
@@ -299,6 +330,29 @@
           <tbody></tbody>
         </table>
       </div>
+    </div>
+    <div class="card">
+      <h2>证券行情价格（股票 / ETF / 可转债）</h2>
+      <div class="hint" id="quoteHint">展示「行情价格」类规则涉及证券的实时行情（最新价、涨跌幅等）。</div>
+      <div class="scroll-x">
+        <table id="quoteTable">
+          <thead><tr><th>代码</th><th>名称</th><th>最新价</th><th>涨跌额</th><th>涨跌幅</th><th>今开</th><th>昨收</th><th>最高</th><th>最低</th><th>成交额(万)</th><th>时间</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= 价格走势 ======================= -->
+  <section id="tab-charts" style="display:none;">
+    <div class="toolbar">
+      <h2>价格走势</h2>
+      <div class="spacer"></div>
+      <button class="btn secondary" onclick="loadChartList()">刷新</button>
+    </div>
+    <div class="card">
+      <div class="hint">点击下方任一监控项，查看其历史数值曲线与告警阈值线（MIN / MAX）。历史数据按「系统设置 → 历史采样间隔」采样累积。</div>
+      <div class="chart-grid" id="chartGrid"></div>
     </div>
   </section>
 
@@ -366,6 +420,14 @@
           <input type="number" name="derivedinterval" min="60">
         </div>
         <div class="field">
+          <label>历史采样间隔（秒，价格走势图用）</label>
+          <input type="number" name="historyinterval" min="1">
+        </div>
+        <div class="field">
+          <label>历史最大采样点数（每条规则）</label>
+          <input type="number" name="historymaxpoints" min="10">
+        </div>
+        <div class="field">
           <label>令牌刷新间隔（秒）</label>
           <input type="number" name="tokenrefreshinterval" min="30">
         </div>
@@ -417,24 +479,39 @@
     <input type="hidden" id="f_id">
     <div class="form-grid">
       <div class="field full">
-        <label>规则名称</label>
-        <input type="text" id="f_name" placeholder="如：IM2612-IM2609 跨期价差">
+        <label>规则类型</label>
+        <select id="f_rule_type" onchange="onRuleTypeChange()">
+          <option value="basis">基差 / 跨期价差（期货合约）</option>
+          <option value="price">行情价格（股票 / ETF / 可转债等）</option>
+        </select>
       </div>
-      <div class="field">
+      <div class="field full">
+        <label>规则名称</label>
+        <input type="text" id="f_name" placeholder="如：IM2612-IM2609 跨期价差 / 可转债ETF 511380">
+      </div>
+      <div class="field basis-only">
         <label>指标</label>
         <select id="f_metric"></select>
       </div>
-      <div class="field">
+      <div class="field basis-only">
         <label>品种</label>
         <select id="f_variety"><option value="IM">IM</option><option value="IF">IF</option><option value="IC">IC</option><option value="IH">IH</option></select>
       </div>
-      <div class="field">
+      <div class="field basis-only">
         <label>合约A</label>
         <input type="text" id="f_contract_a" placeholder="如：IM2612">
       </div>
-      <div class="field">
+      <div class="field basis-only">
         <label>合约B（留空=单合约监控）</label>
         <input type="text" id="f_contract_b" placeholder="如：IM2609">
+      </div>
+      <div class="field price-only">
+        <label>证券代码</label>
+        <input type="text" id="f_symbol" placeholder="如：511380 或 sh511380 / sz123456">
+      </div>
+      <div class="field price-only">
+        <label>指标</label>
+        <select id="f_price_metric"></select>
       </div>
       <div class="field admin-only" id="f_owner_field" style="display:none">
         <label>规则归属</label>
@@ -497,6 +574,24 @@
       <button class="btn secondary" onclick="closeUserModal()">取消</button>
       <button class="btn" onclick="saveUser()">保存</button>
     </div>
+  </div>
+</div>
+
+<!-- ======================= 价格走势弹窗 ======================= -->
+<div class="modal-mask" id="chartModal">
+  <div class="modal" style="max-width:920px;">
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px;">
+      <h3 id="chartTitle" style="margin:0;">价格走势</h3>
+      <span class="hint" id="chartSub" style="margin:0;"></span>
+      <div style="flex:1"></div>
+      <button class="btn secondary small" onclick="closeChart()">关闭</button>
+    </div>
+    <div class="chart-legend" id="chartLegend"></div>
+    <div class="chart-wrap">
+      <canvas id="chartCanvas" height="380"></canvas>
+      <div class="chart-tip" id="chartTip"></div>
+    </div>
+    <div class="hint" id="chartMeta" style="margin-top:8px;"></div>
   </div>
 </div>
 
@@ -605,7 +700,8 @@ document.querySelectorAll("nav button").forEach((btn) => {
     btn.classList.add("active");
     document.querySelectorAll("main > section").forEach((s) => (s.style.display = "none"));
     $("tab-" + btn.dataset.tab).style.display = "";
-    if (btn.dataset.tab === "market") { loadMarket(); updateMarketHint(); }
+    if (btn.dataset.tab === "market") { loadMarket(); loadQuotes(); updateMarketHint(); }
+    if (btn.dataset.tab === "charts") loadChartList();
     if (btn.dataset.tab === "alerts") loadAlerts();
     if (btn.dataset.tab === "users") loadUsers();
     if (btn.dataset.tab === "settings") loadSettings();
@@ -649,7 +745,7 @@ async function loadConfigMeta() {
 function scheduleMarketRefresh() {
   if (_marketTimer) clearTimeout(_marketTimer);
   _marketTimer = setTimeout(async () => {
-    if ($("tab-market").style.display !== "none") loadMarket();
+    if ($("tab-market").style.display !== "none") { loadMarket(); loadQuotes(); }
     scheduleMarketRefresh();
   }, _marketRefreshMs);
 }
@@ -693,6 +789,9 @@ async function loadRules() {
     const data = await api("/api/rules");
     window._metrics = data.metrics || [];
     $("f_metric").innerHTML = window._metrics.map((m) => "<option>" + m + "</option>").join("");
+    window._priceMetrics = data.price_metrics || [];
+    $("f_price_metric").innerHTML = window._priceMetrics.map((m) => "<option>" + m + "</option>").join("");
+    window._ruleTypeLabels = data.rule_type_labels || { basis: "基差/跨期价差", price: "行情价格" };
     window._rules = data.rules || [];
     renderRules(window._rules);
   } catch (e) { toast("加载规则失败: " + e.message, "bad"); }
@@ -702,19 +801,24 @@ function renderRules(rules) {
   const isAdmin = _role === "admin";
   const tbody = document.querySelector("#rulesTable tbody");
   if (!rules.length) {
-    tbody.innerHTML = '<tr><td colspan="12" class="empty">暂无规则，点击右上角「新增规则」添加</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" class="empty">暂无规则，点击右上角「新增规则」添加</td></tr>';
     return;
   }
+  const typeLabels = window._ruleTypeLabels || { basis: "基差", price: "价格" };
   tbody.innerHTML = rules.map((r) => {
     const val = window._ruleValues && window._ruleValues[r.id];
     const v = val && val.value != null ? Number(val.value).toFixed(2) : "--";
     const tag = val ? triggerTag(val.trigger) : '<span class="tag gray">未计算</span>';
     const enabled = r.enabled ? '<span class="tag ok">启用</span>' : '<span class="tag gray">禁用</span>';
     const owner = r.owner === "*" ? '<span class="tag blue">共享</span>' : '<span class="tag">' + esc(r.owner || "-") + '</span>';
+    const isPrice = r.rule_type === "price";
+    const typeTag = isPrice ? '<span class="tag blue">价格</span>' : '<span class="tag gray">基差</span>';
+    const aDisplay = isPrice ? (r.symbol || "—") : r.contract_a;
     return "<tr>" +
       "<td>" + esc(r.name) + "</td>" +
+      "<td>" + typeTag + "</td>" +
       "<td>" + esc(r.metric) + "</td>" +
-      '<td class="mono">' + esc(r.contract_a) + "</td>" +
+      '<td class="mono">' + esc(aDisplay) + "</td>" +
       '<td class="mono">' + (r.contract_b ? esc(r.contract_b) : "—") + "</td>" +
       '<td class="mono">' + (r.min != null ? r.min : "—") + "</td>" +
       '<td class="mono">' + (r.max != null ? r.max : "—") + "</td>" +
@@ -724,6 +828,7 @@ function renderRules(rules) {
       '<td class="mono">' + (r.alert_cooldown || "全局") + "</td>" +
       '<td>' +
         '<button class="btn small secondary" onclick="checkNow(\'' + r.id + '\')">检测</button> ' +
+        '<button class="btn small secondary" onclick="openChart(\'' + r.id + '\')">走势</button> ' +
         '<button class="btn small secondary" onclick="openRuleModal(\'' + r.id + '\')">编辑</button> ' +
         '<button class="btn small danger" onclick="deleteRule(\'' + r.id + '\')">删除</button>' +
       "</td></tr>";
@@ -733,6 +838,10 @@ function renderRules(rules) {
 function renderRuleValues(values) {
   window._ruleValues = values;
   if (window._rules) renderRules(window._rules);
+  const chartsTab = $("tab-charts");
+  if (window._rules && chartsTab && chartsTab.style.display !== "none") {
+    renderChartCards(window._rules);
+  }
 }
 
 function esc(s) {
@@ -746,8 +855,12 @@ function openRuleModal(id) {
   $("ruleModalTitle").textContent = id ? "编辑规则" : "新增规则";
   $("f_id").value = id || "";
   const r = id ? window._rules.find((x) => x.id === id) : {};
+  const type = r.rule_type || "basis";
+  $("f_rule_type").value = type;
   $("f_name").value = r.name || "";
-  $("f_metric").value = r.metric || "当前基差";
+  $("f_metric").value = r.metric && window._metrics.includes(r.metric) ? r.metric : "当前基差";
+  $("f_symbol").value = r.symbol || "";
+  $("f_price_metric").value = r.metric && (window._priceMetrics || []).includes(r.metric) ? r.metric : "最新价";
   const a = r.contract_a || "";
   $("f_variety").value = a.slice(0, 2) || "IM";
   $("f_contract_a").value = a;
@@ -765,7 +878,18 @@ function openRuleModal(id) {
     $("f_owner").innerHTML = opts.join("");
     $("f_owner").value = r.owner || "*";
   }
+  onRuleTypeChange();
   $("ruleModal").classList.add("show");
+}
+
+function onRuleTypeChange() {
+  const isPrice = $("f_rule_type").value === "price";
+  document.querySelectorAll("#ruleModal .basis-only").forEach((el) => {
+    el.style.display = isPrice ? "none" : "";
+  });
+  document.querySelectorAll("#ruleModal .price-only").forEach((el) => {
+    el.style.display = isPrice ? "" : "none";
+  });
 }
 
 function closeRuleModal() {
@@ -777,17 +901,10 @@ $("ruleModal").addEventListener("click", (e) => {
 });
 
 function collectRule() {
-  const variety = $("f_variety").value;
-  const a = ($("f_contract_a").value || "").trim().toUpperCase();
-  const b = ($("f_contract_b").value || "").trim().toUpperCase();
-  const norm = (c) => (c && !c.startsWith(variety) ? variety + c : c);
-  const contract_a = norm(a);
-  const contract_b = b ? norm(b) : "";
+  const type = $("f_rule_type").value;
   const data = {
+    rule_type: type,
     name: $("f_name").value.trim(),
-    metric: $("f_metric").value,
-    contract_a: contract_a,
-    contract_b: contract_b,
     min: $("f_min").value === "" ? null : Number($("f_min").value),
     max: $("f_max").value === "" ? null : Number($("f_max").value),
     alert_cooldown: Number($("f_alert_cooldown").value) || 0,
@@ -796,13 +913,32 @@ function collectRule() {
     notify_recovery: $("f_notify_recovery").checked,
     enabled: $("f_enabled").checked,
   };
+  if (type === "price") {
+    data.symbol = $("f_symbol").value.trim();
+    data.metric = $("f_price_metric").value;
+    data.contract_a = "";
+    data.contract_b = "";
+  } else {
+    const variety = $("f_variety").value;
+    const a = ($("f_contract_a").value || "").trim().toUpperCase();
+    const b = ($("f_contract_b").value || "").trim().toUpperCase();
+    const norm = (c) => (c && !c.startsWith(variety) ? variety + c : c);
+    data.metric = $("f_metric").value;
+    data.contract_a = norm(a);
+    data.contract_b = b ? norm(b) : "";
+    data.symbol = "";
+  }
   if (_role === "admin") data.owner = $("f_owner").value || "*";
   return data;
 }
 
 async function saveRule() {
   const data = collectRule();
-  if (!data.contract_a) return toast("请填写合约A", "bad");
+  if (data.rule_type === "price") {
+    if (!data.symbol) return toast("请填写证券代码（如 511380）", "bad");
+  } else if (!data.contract_a) {
+    return toast("请填写合约A", "bad");
+  }
   if (data.min == null && data.max == null) return toast("请至少填写 MIN 或 MAX 之一", "bad");
   const id = $("f_id").value;
   try {
@@ -862,6 +998,44 @@ async function loadMarket() {
   } catch (e) { toast("加载行情失败: " + e.message, "bad"); }
 }
 
+// ------------------------------------------------------- 证券行情价格
+async function loadQuotes() {
+  try {
+    const data = await api("/api/quotes");
+    const codes = Object.keys(data || {}).sort();
+    const tbody = document.querySelector("#quoteTable tbody");
+    if (!tbody) return;
+    if (!codes.length) {
+      tbody.innerHTML = '<tr><td colspan="11" class="empty">暂无证券行情（无「行情价格」规则，或处于非交易时段等待抓取）</td></tr>';
+      return;
+    }
+    const num = (x, d) => (x != null ? Number(x).toFixed(d == null ? 3 : d) : "--");
+    tbody.innerHTML = codes.map((c) => {
+      const q = data[c];
+      let pct = "--", cls = "tag gray";
+      if (q.change_pct != null) {
+        cls = q.change_pct > 0 ? "tag ok" : (q.change_pct < 0 ? "tag bad" : "tag gray");
+        pct = (q.change_pct > 0 ? "+" : "") + Number(q.change_pct).toFixed(2) + "%";
+      }
+      const amt = q.amount != null ? Number(q.amount / 10000).toFixed(0) : "--";
+      const tt = ((q.date || "") + " " + (q.time || "")).trim() || "--";
+      return "<tr>" +
+        '<td class="mono">' + esc(c) + "</td>" +
+        "<td>" + esc(q.name || "") + "</td>" +
+        '<td class="mono">' + num(q.price) + "</td>" +
+        '<td class="mono">' + num(q.change) + "</td>" +
+        "<td><span class='" + cls + "'>" + pct + "</span></td>" +
+        '<td class="mono">' + num(q.open) + "</td>" +
+        '<td class="mono">' + num(q.prev_close) + "</td>" +
+        '<td class="mono">' + num(q.high) + "</td>" +
+        '<td class="mono">' + num(q.low) + "</td>" +
+        '<td class="mono">' + amt + "</td>" +
+        '<td class="mono">' + esc(tt) + "</td>" +
+        "</tr>";
+    }).join("");
+  } catch (e) { toast("加载证券行情失败: " + e.message, "bad"); }
+}
+
 // ------------------------------------------------------- 告警日志
 async function loadAlerts() {
   try {
@@ -882,6 +1056,266 @@ async function loadAlerts() {
     }).join("");
   } catch (e) { toast("加载告警日志失败: " + e.message, "bad"); }
 }
+
+// ------------------------------------------------------- 价格走势
+let _chartRuleObj = null;
+let _chartPoints = [];
+let _chartHoverIdx = -1;
+let _chartTimer = null;
+
+function _p2(n) { return String(n).padStart(2, "0"); }
+function fmtNum(v) {
+  const a = Math.abs(v);
+  const d = a >= 100 ? 1 : (a >= 1 ? 2 : 4);
+  return Number(v).toFixed(d);
+}
+function fmtFull(t) {
+  const d = new Date(t * 1000);
+  return d.getFullYear() + "-" + _p2(d.getMonth() + 1) + "-" + _p2(d.getDate()) + " " +
+    _p2(d.getHours()) + ":" + _p2(d.getMinutes()) + ":" + _p2(d.getSeconds());
+}
+function fmtClock(t, span) {
+  const d = new Date(t * 1000);
+  if (span >= 86400) return _p2(d.getMonth() + 1) + "/" + _p2(d.getDate()) + " " + _p2(d.getHours()) + ":" + _p2(d.getMinutes());
+  return _p2(d.getHours()) + ":" + _p2(d.getMinutes());
+}
+
+async function loadChartList() {
+  try {
+    const data = await api("/api/rules");
+    window._rules = data.rules || [];
+    renderChartCards(window._rules);
+  } catch (e) { toast("加载走势列表失败: " + e.message, "bad"); }
+}
+
+function renderChartCards(rules) {
+  const box = $("chartGrid");
+  if (!box) return;
+  if (!rules.length) { box.innerHTML = '<div class="empty">暂无监控规则</div>'; return; }
+  box.innerHTML = rules.map((r) => {
+    const val = (window._ruleValues || {})[r.id];
+    const v = val && val.value != null ? Number(val.value).toFixed(2) : "--";
+    const isPrice = r.rule_type === "price";
+    const target = isPrice
+      ? ("代码 " + esc(r.symbol || ""))
+      : (esc(r.contract_a || "") + (r.contract_b ? " − " + esc(r.contract_b) : ""));
+    const th = "MIN " + (r.min != null ? r.min : "—") + " / MAX " + (r.max != null ? r.max : "—");
+    const typeTag = isPrice ? '<span class="tag blue">价格</span>' : '<span class="tag gray">基差</span>';
+    return '<div class="chart-card" onclick="openChart(\'' + r.id + '\')">' +
+      '<div class="name">' + esc(r.name) + " " + typeTag + "</div>" +
+      '<div class="meta">' + esc(r.metric) + " · " + target + "</div>" +
+      '<div class="vals"><span>' + th + '</span><span class="cur">' + v + "</span></div>" +
+      "</div>";
+  }).join("");
+}
+
+function renderChartLegend() {
+  const r = _chartRuleObj || {};
+  let h = '<span><i class="line" style="border-color:var(--primary)"></i>监控值</span>';
+  if (r.max != null) h += '<span><i class="line" style="border-color:var(--danger);border-top-style:dashed"></i>MAX ' + r.max + "</span>";
+  if (r.min != null) h += '<span><i class="line" style="border-color:var(--warning);border-top-style:dashed"></i>MIN ' + r.min + "</span>";
+  $("chartLegend").innerHTML = h;
+}
+
+async function openChart(ruleId) {
+  try {
+    const data = await api("/api/history/" + ruleId);
+    _chartRuleObj = data.rule || { id: ruleId };
+    _chartPoints = data.points || [];
+    _chartHoverIdx = -1;
+    const r = _chartRuleObj;
+    $("chartTitle").textContent = r.name || "价格走势";
+    const isPrice = r.rule_type === "price";
+    $("chartSub").textContent = isPrice
+      ? (r.metric + " · " + (r.symbol || ""))
+      : (r.metric + " · " + (r.contract_a || "") + (r.contract_b ? " − " + r.contract_b : ""));
+    renderChartLegend();
+    $("chartModal").classList.add("show");
+    requestAnimationFrame(drawChart);
+    if (_chartTimer) clearInterval(_chartTimer);
+    _chartTimer = setInterval(refreshChart, 5000);
+  } catch (e) { toast("加载走势失败: " + e.message, "bad"); }
+}
+
+async function refreshChart() {
+  if (!$("chartModal").classList.contains("show") || !_chartRuleObj) return;
+  try {
+    const data = await api("/api/history/" + _chartRuleObj.id);
+    _chartRuleObj = data.rule || _chartRuleObj;
+    _chartPoints = data.points || [];
+    renderChartLegend();
+    requestAnimationFrame(drawChart);
+  } catch (e) {}
+}
+
+function closeChart() {
+  $("chartModal").classList.remove("show");
+  if (_chartTimer) { clearInterval(_chartTimer); _chartTimer = null; }
+  $("chartTip").style.display = "none";
+}
+
+function drawChart() {
+  const cv = $("chartCanvas");
+  if (!cv) return;
+  const wrap = cv.parentElement;
+  const cssW = Math.max(wrap.clientWidth || 820, 320);
+  const cssH = 380;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(cssW * dpr);
+  cv.height = Math.round(cssH * dpr);
+  cv.style.height = cssH + "px";
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  cv._chart = null;
+
+  const padL = 64, padR = 18, padT = 16, padB = 28;
+  const plotW = cssW - padL - padR;
+  const plotH = cssH - padT - padB;
+  const pts = _chartPoints || [];
+  const rule = _chartRuleObj || {};
+
+  if (pts.length < 1) {
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "13px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("暂无历史数据（监控运行一段时间后自动生成曲线）", cssW / 2, cssH / 2);
+    return;
+  }
+
+  const vals = pts.map((p) => p.v).filter((v) => v != null);
+  const ths = [rule.min, rule.max].filter((v) => v != null && isFinite(Number(v))).map(Number);
+  let lo = Math.min.apply(null, vals.concat(ths));
+  let hi = Math.max.apply(null, vals.concat(ths));
+  if (!isFinite(lo) || !isFinite(hi)) { lo = 0; hi = 1; }
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const padY = (hi - lo) * 0.1 || 1;
+  lo -= padY; hi += padY;
+
+  const n = pts.length;
+  const t0 = pts[0].t, t1 = pts[n - 1].t;
+  const span = (t1 - t0) || 1;
+  const X = (t) => padL + (t - t0) / span * plotW;
+  const Y = (v) => padT + (hi - v) / (hi - lo) * plotH;
+
+  ctx.font = "11px monospace";
+  ctx.lineWidth = 1;
+  // 水平网格 + Y 轴标签
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  const yLines = 5;
+  for (let i = 0; i <= yLines; i++) {
+    const v = lo + (hi - lo) * i / yLines;
+    const y = Y(v);
+    ctx.strokeStyle = "rgba(148,163,184,.18)";
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + plotW, y); ctx.stroke();
+    ctx.fillStyle = "#94a3b8";
+    ctx.fillText(fmtNum(v), padL - 8, y);
+  }
+  // 垂直网格 + X 轴标签
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const xLines = Math.min(5, n);
+  for (let i = 0; i < xLines; i++) {
+    const t = t0 + span * (xLines === 1 ? 0 : i / (xLines - 1));
+    const x = X(t);
+    ctx.strokeStyle = "rgba(148,163,184,.08)";
+    ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
+    ctx.fillStyle = "#94a3b8";
+    ctx.fillText(fmtClock(t, span), x, padT + plotH + 6);
+  }
+  // 阈值线 MIN / MAX
+  const threshold = (val, color, label) => {
+    if (val == null || !isFinite(Number(val))) return;
+    const y = Y(Number(val));
+    if (y < padT - 1 || y > padT + plotH + 1) return;
+    ctx.save();
+    ctx.setLineDash([6, 5]);
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + plotW, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color;
+    ctx.font = "11px monospace";
+    ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+    ctx.fillText(label + " " + fmtNum(Number(val)), padL + 4, y - 3);
+    ctx.restore();
+  };
+  threshold(rule.max, "#ef4444", "MAX");
+  threshold(rule.min, "#f59e0b", "MIN");
+
+  // 面积
+  const grad = ctx.createLinearGradient(0, padT, 0, padT + plotH);
+  grad.addColorStop(0, "rgba(59,130,246,.35)");
+  grad.addColorStop(1, "rgba(59,130,246,.02)");
+  ctx.beginPath();
+  pts.forEach((p, i) => { const x = X(p.t), y = Y(p.v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.lineTo(X(pts[n - 1].t), padT + plotH);
+  ctx.lineTo(X(pts[0].t), padT + plotH);
+  ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+  // 曲线
+  ctx.beginPath();
+  pts.forEach((p, i) => { const x = X(p.t), y = Y(p.v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.strokeStyle = "#3b82f6"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
+  // 末端点
+  ctx.beginPath(); ctx.arc(X(pts[n - 1].t), Y(pts[n - 1].v), 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = "#3b82f6"; ctx.fill();
+
+  // 悬停十字线
+  if (_chartHoverIdx >= 0 && _chartHoverIdx < n) {
+    const p = pts[_chartHoverIdx];
+    const x = X(p.t), y = Y(p.v);
+    ctx.save();
+    ctx.strokeStyle = "rgba(148,163,184,.6)"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + plotW, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fillStyle = "#e2e8f0"; ctx.fill();
+    ctx.restore();
+  }
+
+  cv._chart = { padL, padT, plotW, plotH, t0, t1, lo, hi, pts, n };
+  $("chartMeta").textContent = "共 " + n + " 个采样点 · 时间范围 " + fmtFull(pts[0].t) + " ~ " + fmtFull(pts[n - 1].t);
+}
+
+function onChartMove(e) {
+  const cv = $("chartCanvas");
+  const c = cv._chart;
+  if (!c || !c.pts.length) return;
+  const rect = cv.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const span = (c.t1 - c.t0) || 1;
+  const t = c.t0 + Math.min(Math.max((x - c.padL) / c.plotW, 0), 1) * span;
+  let idx = 0, best = Infinity;
+  for (let i = 0; i < c.n; i++) {
+    const d = Math.abs(c.pts[i].t - t);
+    if (d < best) { best = d; idx = i; }
+  }
+  if (idx !== _chartHoverIdx) { _chartHoverIdx = idx; drawChart(); }
+  const tip = $("chartTip");
+  const p = c.pts[idx];
+  tip.textContent = fmtFull(p.t) + "   " + p.v;
+  const wrap = $("chartCanvas").parentElement;
+  const wrect = wrap.getBoundingClientRect();
+  let left = e.clientX - wrect.left + 12;
+  let top = e.clientY - wrect.top - 12;
+  tip.style.display = "block";
+  if (left + tip.offsetWidth > wrect.width) left = e.clientX - wrect.left - tip.offsetWidth - 12;
+  if (top < 0) top = 0;
+  tip.style.left = left + "px";
+  tip.style.top = top + "px";
+}
+
+function onChartLeave() {
+  $("chartTip").style.display = "none";
+  if (_chartHoverIdx !== -1) { _chartHoverIdx = -1; drawChart(); }
+}
+
+$("chartModal").addEventListener("click", (e) => { if (e.target === $("chartModal")) closeChart(); });
+$("chartCanvas").addEventListener("mousemove", onChartMove);
+$("chartCanvas").addEventListener("mouseleave", onChartLeave);
+window.addEventListener("resize", () => { if ($("chartModal").classList.contains("show")) drawChart(); });
 
 // ------------------------------------------------------- 用户管理（管理员）
 async function loadUsers() {
@@ -965,6 +1399,8 @@ async function loadSettings() {
     f.sinarefreshinterval.value = c.sinarefreshinterval || "1";
     f.datasource.value = c.datasource || "hybrid";
     f.derivedinterval.value = c.derivedinterval;
+    f.historyinterval.value = c.historyinterval || "30";
+    f.historymaxpoints.value = c.historymaxpoints || "2000";
     f.tokenrefreshinterval.value = c.tokenrefreshinterval;
     f.alertcooldown.value = c.alertcooldown;
     f.marketopen.value = c.marketopen;
@@ -985,6 +1421,8 @@ async function saveSettings(e) {
     sinarefreshinterval: f.sinarefreshinterval.value,
     datasource: f.datasource.value,
     derivedinterval: f.derivedinterval.value,
+    historyinterval: f.historyinterval.value,
+    historymaxpoints: f.historymaxpoints.value,
     tokenrefreshinterval: f.tokenrefreshinterval.value,
     alertcooldown: f.alertcooldown.value,
     marketopen: f.marketopen.value,

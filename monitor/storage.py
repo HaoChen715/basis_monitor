@@ -11,6 +11,7 @@ from collections import deque
 from datetime import datetime
 
 from .config import program_dir
+from .quote_fetcher import PRICE_METRICS, normalize_symbol
 
 RULES_PATH = os.path.join(
     os.environ.get("BASIS_MONITOR_DATA") or program_dir(), "config", "rules.json"
@@ -31,6 +32,13 @@ METRIC_LABELS = [
 
 # 合约前缀 -> 品种 (用于从规则合约定位 tinysoft 数据区块)
 VARIETIES = ["IM", "IF", "IC", "IH"]
+
+# 规则类型：
+#   basis = 基差/跨期价差（合约A指标 - 合约B指标）
+#   price = 行情价格（按证券代码监控最新价/涨跌幅等，支持股票/ETF/可转债）
+RULE_TYPES = ["basis", "price"]
+RULE_TYPE_LABELS = {"basis": "基差/跨期价差", "price": "行情价格"}
+PRICE_METRIC_LABELS = PRICE_METRICS
 
 
 class RulesStore:
@@ -56,7 +64,8 @@ class RulesStore:
             for rule in self._rules:
                 rule.setdefault("id", self._new_id())
                 rule.setdefault("enabled", True)
-                rule.setdefault("owner", "*")   # 历史规则默认共享
+                rule.setdefault("owner", "*")        # 历史规则默认共享
+                rule.setdefault("rule_type", "basis")  # 历史规则默认基差类
             self._save_locked()
 
     def _save_locked(self):
@@ -120,17 +129,12 @@ class RulesStore:
             except (TypeError, ValueError):
                 return None
 
-        contract_a = str(data.get("contract_a", "")).strip().upper()
-        contract_b = str(data.get("contract_b", "")).strip().upper()
-        metric = data.get("metric", "当前基差")
-        if metric not in METRIC_LABELS:
-            metric = "当前基差"
+        rule_type = str(data.get("rule_type", "basis")).strip().lower()
+        if rule_type not in RULE_TYPES:
+            rule_type = "basis"
 
-        rule = {
-            "name": str(data.get("name", "")).strip() or f"{contract_a}-{contract_b}",
-            "metric": metric,
-            "contract_a": contract_a,
-            "contract_b": contract_b,
+        common = {
+            "rule_type": rule_type,
             "min": _num(data.get("min")),
             "max": _num(data.get("max")),
             "alert_cooldown": _num(data.get("alert_cooldown")) or 0,
@@ -140,7 +144,36 @@ class RulesStore:
             "mentioned_list": data.get("mentioned_list") or ["@all"],
             "owner": str(data.get("owner", "*")).strip() or "*",
         }
-        return rule
+
+        if rule_type == "price":
+            symbol = normalize_symbol(data.get("symbol") or data.get("contract_a") or "")
+            metric = data.get("metric", "最新价")
+            if metric not in PRICE_METRICS:
+                metric = "最新价"
+            name = str(data.get("name", "")).strip() or (symbol or "行情价格")
+            return {
+                **common,
+                "name": name,
+                "metric": metric,
+                "symbol": symbol,
+                "contract_a": "",
+                "contract_b": "",
+            }
+
+        contract_a = str(data.get("contract_a", "")).strip().upper()
+        contract_b = str(data.get("contract_b", "")).strip().upper()
+        metric = data.get("metric", "当前基差")
+        if metric not in METRIC_LABELS:
+            metric = "当前基差"
+        name = str(data.get("name", "")).strip() or f"{contract_a}-{contract_b}"
+        return {
+            **common,
+            "name": name,
+            "metric": metric,
+            "symbol": "",
+            "contract_a": contract_a,
+            "contract_b": contract_b,
+        }
 
 
 class RuntimeState:
@@ -155,6 +188,7 @@ class RuntimeState:
         self.market_open = False
         self.market_cached = False       # 当前行情是否来自最近一次缓存（非交易时段）
         self.market_data = {}            # contract -> {metric_label -> value}
+        self.quote_data = {}             # symbol(sh511380) -> quote_dict（行情价格类）
         self.rule_values = {}            # rule_id -> {value, trigger, ...}
         self.alert_history = deque(maxlen=200)
         self.last_heartbeat = None
@@ -169,6 +203,7 @@ class RuntimeState:
                 "market_open": self.market_open,
                 "market_cached": self.market_cached,
                 "market_data": json.loads(json.dumps(self.market_data)),
+                "quote_data": json.loads(json.dumps(self.quote_data)),
                 "rule_values": json.loads(json.dumps(self.rule_values)),
                 "alert_history": list(self.alert_history),
                 "last_heartbeat": self.last_heartbeat,
@@ -179,6 +214,10 @@ class RuntimeState:
             self.market_data = market_data
             self.last_fetch_time = fetch_time or time.strftime("%Y-%m-%d %H:%M:%S")
             self.last_error = None
+
+    def set_quote_data(self, quote_data: dict):
+        with self._lock:
+            self.quote_data = quote_data or {}
 
     def set_market_cached(self, flag: bool = True):
         with self._lock:

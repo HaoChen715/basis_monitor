@@ -27,8 +27,18 @@ from monitor.auth import OWNER_SHARED, ROLE_ADMIN, UserStore
 from monitor.config import GlobalConfig, program_dir
 from monitor.engine import MonitorEngine
 from monitor.fetcher import TinySoftFetcher
+from monitor.history import HistoryStore
+from monitor.quote_fetcher import QuoteFetcher
 from monitor.sina_fetcher import SinaFetcher
-from monitor.storage import METRIC_LABELS, RulesStore, RuntimeState, VARIETIES
+from monitor.storage import (
+    METRIC_LABELS,
+    PRICE_METRICS,
+    RULE_TYPES,
+    RULE_TYPE_LABELS,
+    RulesStore,
+    RuntimeState,
+    VARIETIES,
+)
 
 # ---------------------------------------------------------------- 日志
 # 所有运行路径（logs/、config/）均在程序所在目录；可用 BASIS_MONITOR_DATA 覆盖
@@ -63,11 +73,18 @@ _rules = RulesStore()
 _state = RuntimeState()
 _fetcher = TinySoftFetcher(token_refresh_interval=_config.get_int("tokenrefreshinterval", 600))
 _sina_fetcher = SinaFetcher()
+_quote_fetcher = QuoteFetcher()
+_history = HistoryStore(
+    min_interval=_config.get_int("historyinterval", 30),
+    max_points=_config.get_int("historymaxpoints", 2000),
+)
 _alarm = WeChatAlarm(
     global_key_provider=lambda: _config.get_webhook_key(),
     base_url_provider=lambda: _config.get("wechatapibase") or "",
 )
-_engine = MonitorEngine(_config, _rules, _state, _fetcher, _alarm, sina_fetcher=_sina_fetcher)
+_engine = MonitorEngine(_config, _rules, _state, _fetcher, _alarm,
+                        sina_fetcher=_sina_fetcher, quote_fetcher=_quote_fetcher,
+                        history=_history)
 
 # 注入线程锁，保证配置/告警跨线程安全
 _state_lock = threading.RLock()
@@ -128,6 +145,14 @@ def create_app():
                 contracts.add(r["contract_b"])
         return contracts
 
+    def visible_symbols(rules):
+        from monitor.quote_fetcher import normalize_symbol
+        symbols = set()
+        for r in rules:
+            if r.get("rule_type") == "price" and r.get("symbol"):
+                symbols.add(normalize_symbol(r["symbol"]) or r["symbol"])
+        return symbols
+
     # ------------------------------------------------------------ 前端
     @app.route("/")
     def index():
@@ -165,6 +190,7 @@ def create_app():
     @login_required
     def api_status():
         snap = _state.snapshot()
+        snap.pop("quote_data", None)  # 证券行情走 /api/quotes（按用户隔离）
         rules = visible_rules()
         rule_ids = {r["id"] for r in rules}
         snap["rule_values"] = {k: v for k, v in snap.get("rule_values", {}).items() if k in rule_ids}
@@ -178,6 +204,9 @@ def create_app():
         return jsonify({
             "rules": visible_rules(),
             "metrics": METRIC_LABELS,
+            "price_metrics": PRICE_METRICS,
+            "rule_types": RULE_TYPES,
+            "rule_type_labels": RULE_TYPE_LABELS,
             "varieties": VARIETIES,
             "role": current_role(),
             "user": current_user(),
@@ -222,6 +251,7 @@ def create_app():
             return jsonify({"ok": False, "error": "无权删除该规则"}), 403
         _rules.delete(rule_id)
         _state.remove_rule_value(rule_id)
+        _history.remove(rule_id)
         return jsonify({"ok": True})
 
     # ------------------------------------------------------------ 手动检测
@@ -264,6 +294,10 @@ def create_app():
         with _state_lock:
             changed = _config.update(data)
             _fetcher.token_refresh_interval = max(_config.get_int("tokenrefreshinterval", 600), 30)
+            _history.configure(
+                min_interval=_config.get_int("historyinterval", 30),
+                max_points=_config.get_int("historymaxpoints", 2000),
+            )
         # 切换到 hybrid 时确保衍生指标后台线程在运行
         if _config.get("datasource", "sina").strip().lower() == "hybrid":
             _engine.start()
@@ -294,6 +328,37 @@ def create_app():
             allowed = visible_contracts(visible_rules())
             flat = {c: row for c, row in flat.items() if c in allowed}
         return jsonify(flat)
+
+    # ------------------------------------------------------------ 证券行情价格（按用户隔离）
+    @app.route("/api/quotes")
+    @login_required
+    def api_quotes():
+        quotes = _state.snapshot().get("quote_data") or {}
+        if not is_admin():
+            allowed = visible_symbols(visible_rules())
+            quotes = {s: q for s, q in quotes.items() if s in allowed}
+        return jsonify(quotes)
+
+    # ------------------------------------------------------------ 监控值历史（价格走势图）
+    @app.route("/api/history/<rule_id>")
+    @login_required
+    def api_history(rule_id):
+        rule = _rules.get(rule_id)
+        if not rule:
+            return jsonify({"ok": False, "error": "规则不存在"}), 404
+        if rule_id not in {r["id"] for r in visible_rules()}:
+            return jsonify({"ok": False, "error": "无权查看该规则"}), 403
+        try:
+            limit = int(request.args.get("limit", 0))
+        except (TypeError, ValueError):
+            limit = 0
+        return jsonify({
+            "ok": True,
+            "rule": rule,
+            "points": _history.get(rule_id, limit=limit or None),
+            "min": rule.get("min"),
+            "max": rule.get("max"),
+        })
 
     # ------------------------------------------------------------ 用户管理（仅管理员）
     @app.route("/api/users", methods=["GET"])

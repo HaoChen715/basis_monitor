@@ -1,0 +1,30 @@
+# 版本控制 / 编辑器
+.git
+.gitignore
+.idea
+.vscode
+*.bundle
+
+# Python 环境与缓存
+.venv
+__pycache__
+*.py[cod]
+.pdm-python
+
+# 构建产物
+build/
+dist/
+.spec_cache/
+
+# 运行时数据（含敏感信息，切勿打进镜像）
+logs/
+data/
+market_cache.json
+history.json
+config/config.ini
+config/users.json
+
+# 文档 / 脚本（运行镜像不需要）
+*.md
+scripts/
+deploy/

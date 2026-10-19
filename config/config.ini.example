@@ -15,6 +15,9 @@ lunchstart = 113000
 lunchend = 130000
 datasource = hybrid
 derivedinterval = 300
+# 价格走势图历史采样间隔（秒）与每条规则最多保留的采样点数
+historyinterval = 30
+historymaxpoints = 2000
 serverhost = 0.0.0.0
 serverport = 80
 # 80 等特权端口需 root 权限；非 root 运行（如本地开发）时自动回退到该端口。

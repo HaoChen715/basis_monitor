@@ -101,10 +101,17 @@ class WeChatAlarm:
             direction_text = direction
             color = "info"
 
+        is_price = rule.get("rule_type") == "price"
+        title = "行情价格监控" if is_price else "基差/跨期价差监控"
+        if is_price:
+            indicator = f"{rule.get('metric')}  {rule.get('symbol', '')}"
+        else:
+            indicator = f"{rule.get('metric')}  {rule.get('contract_a')} - {rule.get('contract_b', '')}"
+
         content = (
-            f"<font color=\"warning\">【基差/跨期价差监控】</font>\n"
+            f"<font color=\"warning\">【{title}】</font>\n"
             f">监控项:<font color=\"comment\">{rule.get('name')}</font>\n"
-            f">指标:{rule.get('metric')}  {rule.get('contract_a')} - {rule.get('contract_b', '')}\n"
+            f">指标:{indicator}\n"
             f">触发:{direction_text}\n"
             f">当前值:<font color=\"{color}\">{value}</font>\n"
             f">播报时间:{alarm_time}\n"

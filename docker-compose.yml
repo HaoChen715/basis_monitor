@@ -1,0 +1,17 @@
+services:
+  basis-monitor:
+    build:
+      context: .
+    image: basis-monitor:latest
+    container_name: basis-monitor
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # 交易时段判断依赖正确时区
+      TZ: Asia/Shanghai
+      PORT: "8080"
+    volumes:
+      # 配置/规则/用户/历史 与 日志 持久化到宿主机 ./data
+      - ./data/config:/app/config
+      - ./data/logs:/app/logs

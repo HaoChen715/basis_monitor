@@ -22,6 +22,9 @@ basis-monitor-package/
 > - **systemd 模式**：适用于有 sudo + systemd 的机器，开机自启、崩溃自动重启
 > - **进程模式**：程序所在目录运行，适用于无 systemd 的 k8s 虚拟机等
 
+> 也可改用 **Docker 方式部署**（推荐，环境一致）：仓库根目录的 `Dockerfile` + `docker-compose.yml`，
+> 见下文「方式 C：Docker 部署」。
+>
 > 目标环境为 **k8s 虚拟机（有 root，无 systemd）**：程序启停由
 > `start.sh` / `stop.sh` 管理，也可自行用任意进程管理方式（nohup、supervisor、k8s Job 等）。
 >
@@ -106,6 +109,35 @@ tail -f basis-monitor-package/logs/console.log
 > deploy.sh 不安装到 /opt、/var/lib 等系统目录，所有路径均在程序所在目录；
 > config/ 与 logs/ 由程序启动时自动创建。迁移 = 整体移动/复制整个目录即可。
 
+### 方式 C：Docker 部署（推荐，环境一致、开箱即用）
+
+仓库根目录已提供 `Dockerfile` 与 `docker-compose.yml`。
+
+```bash
+# 构建并后台启动（镜像 basis-monitor:latest，容器端口 8080）
+docker compose up -d --build
+
+# 查看状态 / 日志
+docker compose ps
+docker compose logs -f
+
+# 停止 / 更新（改代码后重新构建）
+docker compose down
+docker compose up -d --build
+```
+
+要点：
+
+- **数据持久化**：`./data/config`（config.ini、rules.json、users.json、history.json、market_cache.json）
+  与 `./data/logs` 挂载到容器 `/app/config`、`/app/logs`。首次启动自动从镜像内示例生成 `config.ini` 与 `rules.json`。
+- **时区**：容器默认 `TZ=Asia/Shanghai`，务必与交易所时区一致，否则交易时段判断会错。
+- **端口**：默认 `8080`（`docker-compose.yml` 的 `ports` 映射 + 环境变量 `PORT`）。改用宿主机 80 端口：把 `ports` 改为 `"80:8080"`（容器内仍用非特权 8080），并放行宿主机 80。
+- **企业微信**：容器需能出网访问 `qyapi.weixin.qq.com`（或内网网关地址）；可对容器设置 `HTTPS_PROXY` 环境变量。
+- **初始管理员**：`config.ini` 的 `adminpass` 留空时，首次启动随机生成并打印到 `docker compose logs`。
+- **内网离线导入**：在外网 `docker build -t basis-monitor:latest . && docker save basis-monitor:latest -o basis-monitor.tar`，
+  内网 `docker load -i basis-monitor.tar` 后再 `docker compose up -d`。
+- 健康检查：镜像内置 `HEALTHCHECK`，`docker compose ps` 显示 `healthy` 即服务可用。
+
 ### 端口配置（已从代码中抽出，二选一）
 
 1. **配置文件**：编辑程序目录下 `config/config.ini`
@@ -155,11 +187,17 @@ datasource = hybrid        # sina(最快) / hybrid(默认,新浪实时+后台合
 sinarefreshinterval = 1    # 新浪实时行情刷新秒数
 derivedinterval = 300      # hybrid 下 tinysoft 衍生指标合并间隔
 pollinterval = 10          # tinysoft 数据源的轮询间隔
+historyinterval = 30       # 价格走势图历史采样间隔（秒）
+historymaxpoints = 2000    # 每条规则最多保留的历史采样点数
 ```
 
 > **非交易时段行情**：程序每次成功抓取后把最新行情缓存到 `<程序目录>/market_cache.json`。
 > 休市/重启后，实时行情页会展示**最近一次行情数据**并标注抓取时间（前端有"非交易时段"提示），
 > 次日开盘自动恢复实时更新。
+
+> **价格走势图**：程序按 `historyinterval` 采样每个监控项的数值到 `<程序目录>/history.json`，
+> 前端「价格走势」页可查看曲线及 MIN/MAX 阈值线。文件随运行时间增长，到达 `historymaxpoints` 后
+> 自动淘汰最旧点；删除规则时同步清除其历史。
 
 ### 3. 交易时段与告警
 ```ini
@@ -175,9 +213,12 @@ enableheartbeat = 0        # 心跳看门狗
 ### 4. 监控规则
 - 规则文件：`<程序目录>/config/rules.json`
 - **推荐**：直接在浏览器前端「规则管理」页新增/编辑/删除（实时生效）
-- 规则示例（IM2612−IM2609 期货价差，高于 −100 或低于 −260 告警）：
+- 规则分两类，用 `rule_type` 区分：`basis`（基差/跨期价差，默认）与 `price`（证券行情价格）。
+
+基差/跨期价差示例（IM2612−IM2609 期货价差，高于 −100 或低于 −260 告警）：
 ```json
 {
+  "rule_type": "basis",
   "name": "IM2612-IM2609 跨期价差",
   "metric": "期货价格",
   "contract_a": "IM2612",
@@ -189,6 +230,23 @@ enableheartbeat = 0        # 心跳看门狗
   "owner": "*"
 }
 ```
+
+证券行情价格示例（可转债 ETF 511380 最新价，超出 11~13.5 告警；代码可直接写 `511380`）：
+```json
+{
+  "rule_type": "price",
+  "name": "可转债ETF博时 511380 最新价",
+  "metric": "最新价",
+  "symbol": "sh511380",
+  "min": 11.0,
+  "max": 13.5,
+  "alert_cooldown": 300,
+  "enabled": true,
+  "owner": "*"
+}
+```
+> `metric` 可选：最新价 / 涨跌幅(%) / 涨跌额 / 今开 / 昨收 / 最高 / 最低 / 成交额(万)；
+> 支持股票、ETF、可转债等任意沪深证券（`sh`/`sz` 前缀可省略，程序按代码自动识别交易所）。
 
 ### 5. 用户与权限（多用户隔离）
 
